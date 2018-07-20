@@ -45,6 +45,7 @@ public class FNatsServerTest {
     private Connection mockConn;
     private FProcessor mockProcessor;
     private FProtocolFactory mockProtocolFactory;
+    private FServerEventHandler mockEventHandler;
     private String subject = "foo";
     private String queue = "bar";
     private FNatsServer server;
@@ -54,6 +55,7 @@ public class FNatsServerTest {
         mockConn = mock(Connection.class);
         mockProcessor = mock(FProcessor.class);
         mockProtocolFactory = mock(FProtocolFactory.class);
+        mockEventHandler = mock(FServerEventHandler.class);
         server = new FNatsServer.Builder(mockConn, mockProcessor, mockProtocolFactory, new String[]{subject})
                 .withQueueGroup(queue).build();
     }
@@ -155,7 +157,7 @@ public class FNatsServerTest {
         MockFProcessor processor = new MockFProcessor(data, "blah".getBytes());
         mockProtocolFactory = new FProtocolFactory(new TJSONProtocol.Factory());
         FNatsServer.Request request = new FNatsServer.Request(data, timestamp, reply, highWatermark,
-                mockProtocolFactory, mockProtocolFactory, processor, mockConn);
+                mockProtocolFactory, mockProtocolFactory, processor, mockConn, mockEventHandler);
 
         request.run();
 
@@ -172,7 +174,7 @@ public class FNatsServerTest {
         MockFProcessor processor = new MockFProcessor(new RuntimeException());
         mockProtocolFactory = new FProtocolFactory(new TJSONProtocol.Factory());
         FNatsServer.Request request = new FNatsServer.Request(data, timestamp, reply, highWatermark,
-                mockProtocolFactory, mockProtocolFactory, processor, mockConn);
+                mockProtocolFactory, mockProtocolFactory, processor, mockConn, mockEventHandler);
 
         request.run();
 
@@ -189,7 +191,7 @@ public class FNatsServerTest {
         MockFProcessor processor = new MockFProcessor(data, null);
         mockProtocolFactory = new FProtocolFactory(new TJSONProtocol.Factory());
         FNatsServer.Request request = new FNatsServer.Request(data, timestamp, reply, highWatermark,
-                mockProtocolFactory, mockProtocolFactory, processor, mockConn);
+                mockProtocolFactory, mockProtocolFactory, processor, mockConn, mockEventHandler);
 
         request.run();
 

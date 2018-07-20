@@ -57,6 +57,7 @@ public class FNatsServer implements FServer {
 
     private final CountDownLatch shutdownSignal = new CountDownLatch(1);
     private final ExecutorService executorService;
+    protected FServerEventHandler eventHandler;
 
     /**
      * Creates a new FNatsServer which receives requests on the given subjects and queue.
@@ -75,7 +76,8 @@ public class FNatsServer implements FServer {
      * @param executorService Custom executor service for processing messages
      */
     private FNatsServer(Connection conn, FProcessor processor, FProtocolFactory protoFactory,
-                        String[] subjects, String queue, long highWatermark, ExecutorService executorService) {
+                        String[] subjects, String queue, long highWatermark, ExecutorService executorService,
+                        FServerEventHandler eventHandler) {
         this.conn = conn;
         this.processor = processor;
         this.inputProtoFactory = protoFactory;
@@ -84,6 +86,7 @@ public class FNatsServer implements FServer {
         this.queue = queue;
         this.highWatermark = highWatermark;
         this.executorService = executorService;
+        this.eventHandler = eventHandler;
     }
 
     /**
@@ -101,6 +104,7 @@ public class FNatsServer implements FServer {
         private int queueLength = DEFAULT_WORK_QUEUE_LEN;
         private long highWatermark = DEFAULT_WATERMARK;
         private ExecutorService executorService;
+        private FServerEventHandler eventHandler;
 
         /**
          * Creates a new Builder which creates FStatelessNatsServers that subscribe to the given NATS subjects.
@@ -186,6 +190,11 @@ public class FNatsServer implements FServer {
             return this;
         }
 
+        public Builder withEventHandler(FServerEventHandler eventHandler) {
+            this.eventHandler = eventHandler;
+            return this;
+        }
+
         /**
          * Creates a new configured FNatsServer.
          *
@@ -198,7 +207,11 @@ public class FNatsServer implements FServer {
                         new ArrayBlockingQueue<>(queueLength),
                         new BlockingRejectedExecutionHandler());
             }
-            return new FNatsServer(conn, processor, protoFactory, subjects, queue, highWatermark, executorService);
+            if (eventHandler == null) {
+                this.eventHandler = new FDumbServerEventHandler();
+            }
+            return new FNatsServer(conn, processor, protoFactory, subjects, queue, highWatermark, executorService,
+                    eventHandler);
         }
 
     }
@@ -263,13 +276,15 @@ public class FNatsServer implements FServer {
         return message -> {
             String reply = message.getReplyTo();
             if (reply == null || reply.isEmpty()) {
-                LOGGER.warn("Discarding invalid NATS request (no reply)");
+                eventHandler.onInvalidRequest();
                 return;
             }
 
             executorService.execute(
                     new Request(message.getData(), System.currentTimeMillis(), message.getReplyTo(),
-                            highWatermark, inputProtoFactory, outputProtoFactory, processor, conn));
+                            highWatermark, inputProtoFactory, outputProtoFactory, processor, conn,
+                            eventHandler));
+            eventHandler.onNewRequest();
         };
     }
 
@@ -286,10 +301,13 @@ public class FNatsServer implements FServer {
         final FProtocolFactory outputProtoFactory;
         final FProcessor processor;
         final Connection conn;
+        final FServerEventHandler eventHandler;
+
+        private InheritableThreadLocal<Long> startTime = new InheritableThreadLocal<Long>();
 
         Request(byte[] frameBytes, long timestamp, String reply, long highWatermark,
                 FProtocolFactory inputProtoFactory, FProtocolFactory outputProtoFactory,
-                FProcessor processor, Connection conn) {
+                FProcessor processor, Connection conn, FServerEventHandler eventHandler) {
             this.frameBytes = frameBytes;
             this.timestamp = timestamp;
             this.reply = reply;
@@ -298,14 +316,15 @@ public class FNatsServer implements FServer {
             this.outputProtoFactory = outputProtoFactory;
             this.processor = processor;
             this.conn = conn;
+            this.eventHandler = eventHandler;
         }
 
         @Override
         public void run() {
+            startTime.set(timestamp);
             long duration = System.currentTimeMillis() - timestamp;
             if (duration > highWatermark) {
-                LOGGER.warn(String.format(
-                        "request spent %d ms in the transport buffer, your consumer might be backed up", duration));
+                eventHandler.onHighWatermark(duration);
             }
             process();
         }
@@ -319,7 +338,7 @@ public class FNatsServer implements FServer {
             try {
                 processor.process(inputProtoFactory.getProtocol(input), outputProtoFactory.getProtocol(output));
             } catch (TException e) {
-                LOGGER.error("error processing request", e);
+                eventHandler.onApplicationError(e);
                 return;
             } catch (RuntimeException e) {
                 try {
@@ -338,10 +357,26 @@ public class FNatsServer implements FServer {
             try {
                 conn.publish(reply, output.getWriteBytes());
             } catch (IOException e) {
-                LOGGER.warn("failed to request response: " + e.getMessage());
+                eventHandler.onPublishError(e);
             }
         }
 
+        /**
+         * blah.
+         * @return
+         */
+        public long elapsedTime() {
+            return startTime.get() - System.currentTimeMillis();
+        }
+
+    }
+
+    /**
+     * blah.
+     * @param eventHandler
+     */
+    public void setEventHandler(FServerEventHandler eventHandler) {
+        this.eventHandler = eventHandler;
     }
 
     /**
