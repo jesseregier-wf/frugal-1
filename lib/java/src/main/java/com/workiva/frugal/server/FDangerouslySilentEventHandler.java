@@ -9,8 +9,8 @@ import java.io.IOException;
 /**
  * Nah.
  */
-public class FDumbServerEventHandler implements FServerEventHandler {
-    private static final Logger LOGGER = LoggerFactory.getLogger(FDumbServerEventHandler.class);
+public class FDangerouslySilentEventHandler implements FServerEventHandler {
+    private static final Logger LOGGER = LoggerFactory.getLogger(FDangerouslySilentEventHandler.class);
 
     /**
      * Nah.

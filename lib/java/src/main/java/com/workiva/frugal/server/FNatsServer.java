@@ -208,7 +208,7 @@ public class FNatsServer implements FServer {
                         new BlockingRejectedExecutionHandler());
             }
             if (eventHandler == null) {
-                this.eventHandler = new FDumbServerEventHandler();
+                this.eventHandler = new FDangerouslySilentEventHandler();
             }
             return new FNatsServer(conn, processor, protoFactory, subjects, queue, highWatermark, executorService,
                     eventHandler);
